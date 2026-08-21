@@ -1,0 +1,63 @@
+[project]
+name = "security-agent-core"
+version = "0.1.0"
+description = "A self-improving security agent"
+requires-python = ">=3.11"
+dependencies = [
+    "haystack-ai==3.0.0",
+    # The Advanced RAG Agent behind `search_security_kb`
+    "agent-pack-haystack==0.0.1",
+    # The knowledge base's document store. Qdrant runs in Docker (see docker-compose.yml); it
+    # replaced a hand-rolled on-disk artifact, a numpy dense retriever and an in-process BM25
+    # index with one engine that does persistence, filtering, ANN and hybrid fusion.
+    "qdrant-haystack<=11.0",
+    # The lexical leg: `Qdrant/bm25` sparse vectors, at index and query time. No revision to pin,
+    # so the version is fixed by this dependency — see knowledge_base/pins.py.
+    "fastembed-haystack>=1.4",
+    "anthropic-haystack~=5.13",
+    # Structured triage verdict (security_agent.verdict). Ships transitively with Haystack,
+    # but we import it directly, so pin it explicitly.
+    "pydantic>=2",
+    # Benchmark datasets (PrimeVul, SEC-bench) are loaded via `datasets` (build-benchmark only).
+    "datasets",
+    # SEC-bench drives its Docker sandbox through the Docker SDK (security_agent.docker_eval).
+    "docker>=7.0",
+    "pyyaml>=6.0",
+    # Loads OPENAI_API_KEY (meta-agent) + ANTHROPIC_API_KEY (target) from .env.
+    "python-dotenv",
+    # Knowledge base behind `search_security_kb` uses local embeddings for the
+    # indexing pipeline plus the cross-encoder reranker on the query side.
+    # Pulls torch (~2.5 GB installed).
+    "sentence-transformers-haystack",
+    # Indexing behind `search_security_kb` uses httpx directly (the vendored
+    # knowledge_base.curation.safe_http). Ships with the deps above, pinned because we import it.
+    "httpx",
+    # OTLP/JSON file tracing for eval (security_agent.tracing).
+    "opentelemetry-haystack",
+    "opentelemetry-sdk",
+    "opentelemetry-exporter-otlp-proto-common",
+]
+
+[project.optional-dependencies]
+hitl = ["rich>=13.0"]
+
+[project.scripts]
+secagent = "security_agent.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+# src-layout, one package. The repo-root-relative paths in config.py (data/,
+# benchmark_data/, pipeline.yaml, traces/, runs/) resolve from the package location.
+[tool.hatch.build.targets.wheel]
+packages = ["src/security_agent"]
+
+# Default Hatch environment: installs this project (editable) plus dev tools.
+# Use it with `hatch run <cmd>` (e.g. `hatch run secagent ...`) or `hatch shell`.
+[tool.hatch.envs.default]
+python = "3.13"
+dependencies = ["pytest>=8.0"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -33,3 +33,7 @@ ignores:
   - "node_modules/**"
   # Generated catalog export, including signer-produced skill-card.md files.
   - "skills/**"
+  # Vendored third-party source trees copied verbatim into an agent's Docker
+  # build context (e.g. agents/security-triage/vendor/security-agent-core/) --
+  # lint at the source repo, not here.
+  - "agents/*/vendor/**"

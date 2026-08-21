@@ -1,0 +1,25 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "security-triage-agent-cli"
+version = "0.1.0"
+description = "Security triage agent runtime CLI for NemoClaw (proof-of-concept)"
+requires-python = ">=3.11"
+dependencies = [
+  # Pinned to match vendor/security-agent-core/pyproject.toml (the package that
+  # actually defines make_skill_script_tool). security-agent-core itself is
+  # installed separately in the Dockerfile (a local path install, since it is
+  # not published to PyPI) -- listing it here too would try to resolve it there.
+  "haystack-ai==3.0.0",
+  "anthropic-haystack~=5.13",
+]
+
+[project.scripts]
+security-triage-agent = "security_triage_agent_cli.__main__:main"
+
+[tool.setuptools]
+packages = ["security_triage_agent_cli"]

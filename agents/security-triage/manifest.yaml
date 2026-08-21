@@ -1,0 +1,90 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Agent manifest for Security Triage (deepset Haystack + security-agent-core's
+# code-triage skill). Adds a 5th agent runtime, following the deep-research POC's
+# manifest-only registration path (§1 of DEEP_RESEARCH_POC_REPORT.md): dropping
+# this manifest is enough for `nemoclaw agents list` / `--agent security-triage`
+# / direct `openshell sandbox create`. The full `nemoclaw onboard` wizard (the
+# `ManagedStartupAgent` union touchpoints) is a deliberately deferred v2 step.
+#
+# Modeled as a `terminal` runtime, like langchain-deepagents-code and
+# deep-research: the triage run is a one-shot `security-triage-agent run --repo
+# ...` invocation, not a persistent web UI. The sandbox stays alive via the
+# always-up health gateway nemoclaw-start still launches (a harmless liveness
+# process); readiness is proven by the smoke command below, not a health probe.
+
+name: security-triage
+display_name: "Security Triage Agent"
+description: "Whole-repo vulnerability triage agent built on deepset Haystack and security-agent-core's code-triage skill"
+version_constraint: ">=3.0.0"
+language: python
+license: Apache-2.0
+homepage: "https://github.com/deepset-ai/security-agent"
+
+# ── Binary & process ────────────────────────────────────────────
+install_method: pip
+binary_path: /usr/local/bin/security-triage-agent
+version_command: "security-triage-agent --version"
+expected_version: "0.1.0"
+version_scheme: semver
+
+# ── Runtime kind ────────────────────────────────────────────────
+runtime:
+  kind: terminal
+  interactive_command: "bash"
+  headless_command: "security-triage-agent run"
+  smoke_commands:
+    - "security-triage-agent --version"
+
+# ── Configuration ───────────────────────────────────────────────
+config:
+  dir: /sandbox/.security-triage
+  config_file: config.yaml
+  env_file: .env
+  format: yaml
+
+# ── State directories ──────────────────────────────────────────
+# v1 is stdout-only: reports are printed by `run`, not persisted. Only runtime
+# state/logs live under the config dir (HOME=/sandbox).
+state_dirs:
+  - state
+  - logs
+
+user_managed_files:
+  - .security-triage/.env
+
+device_pairing: false
+
+# ── Inference ───────────────────────────────────────────────────
+# Built on Haystack's AnthropicChatGenerator, which calls the Anthropic Messages
+# API (/v1/messages) via the `anthropic` SDK. The SDK reads ANTHROPIC_BASE_URL /
+# ANTHROPIC_API_KEY directly when no base_url= kwarg is passed (verified against
+# the installed anthropic-haystack + anthropic packages), so a NemoClaw managed
+# Anthropic-compatible endpoint routes through with no code changes. NemoClaw's
+# own inference-routing code (gateway-route-compatibility.ts) already has an
+# "anthropic-messages" inference-api kind and a "compatible-anthropic-endpoint"
+# provider kind -- provider_type here is descriptive only, since this agent
+# bypasses the ManagedStartupAgent-driven gateway wiring (manifest-only v1).
+inference:
+  provider_type: anthropic_messages
+  default_model: claude-sonnet-5
+  base_url_config_key: "model.base_url"
+  model_config_key: "model.default"
+  proxy_support: implicit
+
+# ── MCP server support ───────────────────────────────────────────
+mcp:
+  support: disabled
+  reason: "MCP bridge is out of scope for the Security Triage POC runtime."
+
+# ── Package registry ───────────────────────────────────────────
+# No runtime pip installs -- security-agent-core, the code-triage skill, and its
+# venv (tree-sitter/bandit) are all baked into the image at build time. This
+# stanza is kept for manifest-shape parity with the other agents; nothing at run
+# time actually talks to PyPI.
+package_registry:
+  hosts:
+    - pypi.org
+    - files.pythonhosted.org
+  binary: /opt/venv/bin/pip3

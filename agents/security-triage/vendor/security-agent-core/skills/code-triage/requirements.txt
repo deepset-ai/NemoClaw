@@ -1,0 +1,11 @@
+# Installed into the skill's own venv at setup time (the haystack-rag-demo
+# install.sh pattern). All run under the venv's already-allowlisted python3 —
+# no extra OpenShell --binary policy rule needed.
+#
+# Semgrep is intentionally NOT here, and there is no Semgrep tier in deepen.py yet:
+# `--semgrep` is a reserved placeholder that only warns. Adding the tier would mean
+# an external CLI binary needing its own `openshell policy --binary` sandbox rule,
+# which is why it was left out of the first cut.
+tree-sitter
+tree-sitter-language-pack
+bandit

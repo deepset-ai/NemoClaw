@@ -1,0 +1,112 @@
+type: haystack.components.agents.agent.Agent
+init_parameters:
+  chat_generator:
+    type: haystack_integrations.components.generators.anthropic.chat.chat_generator.AnthropicChatGenerator
+    init_parameters:
+      model: claude-sonnet-5
+      streaming_callback: null
+      generation_kwargs:
+        max_tokens: 8192
+        # Structured outputs: constrain the agent's final answer to the triage-verdict
+        # schema so it is always valid JSON (no fragile text parsing). Generated from
+        # security_agent.verdict.VulnerabilityVerdict; do not hand-edit — tests/test_seeds.py
+        # asserts this equals verdict.strict_schema(). The optimizer cannot mutate it
+        # (config_patch only allows temperature/max_tokens/top_p under generation_kwargs).
+        output_config:
+          format:
+            type: json_schema
+            schema:
+              description: A security-triage verdict for a single source-code function.
+              properties:
+                is_vulnerable:
+                  description: Whether the function contains a security vulnerability.
+                  title: Is Vulnerable
+                  type: boolean
+                cwe:
+                  anyOf:
+                  - type: string
+                  - type: 'null'
+                  description: CWE identifier like 'CWE-89'; null when not vulnerable.
+                  title: Cwe
+                vulnerable_lines:
+                  description: 1-based line numbers; empty when not vulnerable.
+                  items:
+                    type: integer
+                  title: Vulnerable Lines
+                  type: array
+                rationale:
+                  description: One or two sentence justification.
+                  title: Rationale
+                  type: string
+              required:
+              - is_vulnerable
+              - cwe
+              - vulnerable_lines
+              - rationale
+              title: VulnerabilityVerdict
+              type: object
+              additionalProperties: false
+      api_key:
+        type: env_var
+        env_vars:
+        - ANTHROPIC_API_KEY
+        strict: true
+      ignore_tools_thinking_messages: true
+      tools: null
+      timeout: null
+      max_retries: null
+  tools:
+  - type: haystack.tools.component_tool.ComponentTool
+    data:
+      component:
+        type: security_agent.components.CweSearch
+        init_parameters:
+          reference_path: data/cwe_reference.json
+          top_k: 5
+      name: search_cwe
+      description: Search the CWE catalog by a short free-text description of the
+        weakness (e.g. 'writes past the end of a fixed-size buffer'). Returns the
+        top candidate CWE classes with their definitions. Use it to find the right
+        CWE id when you do not already know it, then confirm the chosen one with lookup_cwe.
+      parameters: null
+      inputs_from_state: null
+      outputs_to_state: null
+      outputs_to_string:
+        source: matches
+  - type: haystack.tools.component_tool.ComponentTool
+    data:
+      component:
+        type: security_agent.components.CweLookup
+        init_parameters:
+          reference_path: data/cwe_reference.json
+      name: lookup_cwe
+      description: Look up the definition of a CWE weakness class by its identifier
+        (e.g. 'CWE-787' or '787'). Returns the name and a short description. Use it
+        to confirm which weakness class a code pattern belongs to.
+      parameters: null
+      inputs_from_state: null
+      outputs_to_state: null
+      outputs_to_string:
+        source: definition
+  system_prompt: |-
+    You are a security vulnerability-triage assistant.
+
+    You are given a single source-code function. Decide whether it contains a security vulnerability, and if so which CWE weakness class it belongs to and which lines are implicated.
+
+    - Reason about memory safety, input validation, injection, and unsafe API usage.
+    - To pin down the CWE, you MAY call search_cwe with a short description of the weakness to retrieve candidate classes, and lookup_cwe to confirm a specific id. Use them when unsure rather than guessing a number; skip them for classes you already know, and keep tool use to a call or two.
+    - Base your verdict only on the code shown. Do not assume unseen callers make it safe or unsafe.
+    - Report cwe as "CWE-<number>" (e.g. "CWE-787") when vulnerable and null otherwise; give vulnerable_lines as 1-based line numbers ([] when not vulnerable); keep rationale to one or two sentences.
+
+    For example, a function that copies unbounded attacker-controlled input into a fixed-size stack buffer with strcpy is vulnerable to CWE-787 (an out-of-bounds write) at the line performing the copy, because there is no bounds check.
+  user_prompt: null
+  required_variables: null
+  exit_conditions:
+  - text
+  state_schema: {}
+  max_agent_steps: 4
+  streaming_callback: null
+  raise_on_tool_invocation_failure: false
+  tool_concurrency_limit: 4
+  tool_streaming_callback_passthrough: false
+  hooks: null
