@@ -7,6 +7,8 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import threading
+import time
 
 from . import __version__
 
@@ -40,7 +42,29 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "run":
         from .agent_runtime import run_once
 
-        report, meta = run_once(args.repo)
+        # A triage run is a single blocking Agent.run() call with no
+        # intermediate output — on a multi-file repo it can go several minutes
+        # between the process's first and last line of output. That reads as
+        # hung to anything watching for liveness, so heartbeat while it works.
+        stop = threading.Event()
+
+        def _heartbeat() -> None:
+            start = time.monotonic()
+            while not stop.wait(20):
+                print(
+                    f"[security-triage-agent] still triaging... "
+                    f"{int(time.monotonic() - start)}s elapsed",
+                    file=sys.stderr,
+                    flush=True,
+                )
+
+        beat = threading.Thread(target=_heartbeat, daemon=True)
+        beat.start()
+        try:
+            report, meta = run_once(args.repo)
+        finally:
+            stop.set()
+
         print(f"[security-triage-agent run-meta] {json.dumps(meta, default=str)}", file=sys.stderr, flush=True)
         print(report, flush=True)
         return 0

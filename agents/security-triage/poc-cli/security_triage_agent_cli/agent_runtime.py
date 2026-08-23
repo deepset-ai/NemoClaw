@@ -63,6 +63,13 @@ def build_agent(skills_dir: Path | None = None) -> Any:
             # message replay currently orders thinking blocks last in assistant
             # turns, which the API rejects on the next tool iteration.
             generation_kwargs={"adaptive_thinking_effort": "none"},
+            # Bound per-call latency: the underlying `anthropic` SDK's own
+            # defaults (unset here) can leave a single request retrying for a
+            # very long time against transient upstream slowness, which reads
+            # as a hang with no error -- a triage run should fail loud and
+            # fast instead, so an operator/watchdog sees a real error.
+            timeout=120.0,
+            max_retries=3,
         ),
         tools=[
             toolset,
