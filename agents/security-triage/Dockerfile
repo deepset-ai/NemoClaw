@@ -46,8 +46,16 @@ RUN python3 -m venv /opt/venv \
 # convention and found none), so a vendored copy ships alongside this agent:
 # agents/security-triage/vendor/security-agent-core/ (plain file copy, gitignored
 # caches/venvs/.env excluded -- see that directory's own note if one is added).
+#
+# --no-deps: this agent only ever imports security_agent.skill_script_tool,
+# which imports nothing beyond the stdlib + haystack.tools (already pulled in
+# by the CLI package's own pyproject.toml below); security_agent/__init__.py
+# does no eager imports either. A plain `pip install` would otherwise resolve
+# the FULL security-agent-core dependency tree -- qdrant-haystack,
+# fastembed-haystack, and sentence-transformers-haystack's ~2.5GB of
+# torch/CUDA wheels included -- none of which this agent's code path touches.
 COPY agents/security-triage/vendor/security-agent-core /opt/security-agent-core
-RUN /opt/venv/bin/pip install /opt/security-agent-core
+RUN /opt/venv/bin/pip install --no-deps /opt/security-agent-core
 
 # Provision the code-triage skill's OWN venv at build time (tree-sitter/bandit),
 # per its requirements.txt -- so `make_skill_script_tool(..., auto_venv=False)`
