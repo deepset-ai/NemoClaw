@@ -52,6 +52,7 @@ const PROFILE_ENVIRONMENT_INPUTS = {
     "NEMOCLAW_PROXY_PORT",
     "NEMOCLAW_REASONING",
   ],
+  "security-triage": ["NEMOCLAW_PROXY_HOST", "NEMOCLAW_PROXY_PORT"],
 } as const satisfies Record<ManagedStartupAgent, readonly string[]>;
 
 const HOST_NO_PROXY_INPUTS = ["NO_PROXY", "no_proxy"] as const;
@@ -130,6 +131,13 @@ function dashboardForInput(
   if (agent === "pi") {
     if (input.manageDashboard) {
       throw new ManagedStartupOnboardProfileError("Pi must not enable a dashboard");
+    }
+    return { agent, mode: "disabled" };
+  }
+
+  if (agent === "security-triage") {
+    if (input.manageDashboard) {
+      throw new ManagedStartupOnboardProfileError("Security Triage must not enable a dashboard");
     }
     return { agent, mode: "disabled" };
   }

@@ -250,7 +250,11 @@ function reboundMessaging(
   destinationSandboxName: string,
 ): SandboxMessagingState | undefined {
   if (profile.messaging.plan === null) return undefined;
-  if (profile.agent === "langchain-deepagents-code" || profile.agent === "pi") {
+  if (
+    profile.agent === "langchain-deepagents-code" ||
+    profile.agent === "pi" ||
+    profile.agent === "security-triage"
+  ) {
     fail(`${profile.agent} clone unexpectedly produced a messaging plan`);
   }
   const agent = profile.agent;
