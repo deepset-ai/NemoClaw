@@ -116,7 +116,7 @@ extra `openshell policy --binary` rule is needed for the default path.
       "exposure": "exposed_externally",
       "hop_distance": 0,
       "ssrf_idor_flag": false,
-      "finding": { "tool": "bandit", "test_id": "B607", "severity": "low" },
+      "finding": { "tool": "bandit", "test_id": "B607", "severity": "low", "cwe": "CWE-78" },
       "priority_score": 140
     }
   ]
@@ -143,6 +143,10 @@ Field notes:
   candidate has more than one Bandit issue, `finding.severity`/`test_id` are the
   **highest-severity** one and `finding.n_findings` is the total (so a "medium" badge
   can't hide a HIGH issue in the same function).
+- `finding.cwe` — the weakness class (e.g. `CWE-78` command injection, `CWE-89` SQL
+  injection, `CWE-502` deserialization, `CWE-918` SSRF). Bandit findings use Bandit's
+  own CWE; regex-fallback findings use the most severe class among the matched sinks.
+  A triage hint, not a proof. May be `null`.
 - `function` — the function name, `null` for a raw-hit fallback (unparsed file), or
   `"<module>"` for a Bandit issue on module-level code (imports, config,
   `app.run(debug=True)`) that lives outside any function.
@@ -150,7 +154,10 @@ Field notes:
   bonus. Higher = look first.
 
 Useful flags on `deepen.py`: `--top N` (shortlist size, default 40), `--max-hops N`
-(reachability cap, default 2), `--max-file-bytes N`.
+(reachability cap, default 2), `--max-file-bytes N`, `--sarif` (emit SARIF 2.1.0
+instead of the default JSON — for GitHub code scanning, IDEs, or a downstream harness;
+each candidate becomes a result, and the CWE class becomes an `external/cwe/CWE-NN`
+rule tag).
 
 `deepen.py` also accepts `--semgrep`, but **it does nothing yet** — there is no Semgrep
 tier in this build, so the flag only adds a warning saying so. Don't reach for it

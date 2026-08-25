@@ -221,6 +221,55 @@ def test_sql_execute_sink_matches_any_receiver():
     assert ".execute()" not in matched("return self.executed_count")  # not a call
 
 
+def test_cwe_for_sink_labels_picks_most_severe():
+    # command injection (CWE-78) outranks path traversal (CWE-22) when both match
+    assert common.cwe_for_sink_labels(["open()", "subprocess"]) == "CWE-78"
+    assert common.cwe_for_sink_labels(["requests.*"]) == "CWE-918"  # SSRF
+    assert common.cwe_for_sink_labels([".execute()"]) == "CWE-89"   # SQLi
+    assert common.cwe_for_sink_labels(["pickle.loads"]) == "CWE-502"
+    assert common.cwe_for_sink_labels([]) is None
+
+
+def test_regex_fallback_finding_carries_cwe():
+    # a regex-fallback finding tags the weakness class from its sinks
+    fn = _fn(name="run", body="subprocess.run(cmd)")
+    finding = deepen.attach_finding(fn, ["subprocess"], bandit_by_file={})
+    assert finding["tool"] == "regex-fallback"
+    assert finding["cwe"] == "CWE-78"
+
+
+def test_sarif_output_is_well_formed(tmp_path: Path):
+    # deepen -> SARIF 2.1.0: valid top-level shape, results with locations/regions,
+    # and CWE classes surfaced as external/cwe rule tags.
+    (tmp_path / "svc.py").write_text(
+        "import subprocess\n"
+        "def run(cmd):\n"
+        "    subprocess.run(cmd)\n"
+    )
+    result = deepen.deepen(tmp_path, files=["svc.py"])
+    sarif = deepen.to_sarif(result, tmp_path)
+
+    assert sarif["version"] == "2.1.0"
+    run = sarif["runs"][0]
+    assert run["tool"]["driver"]["name"] == "code-triage"
+    assert run["results"], "expected at least one result"
+
+    res = run["results"][0]
+    loc = res["locations"][0]["physicalLocation"]
+    assert loc["artifactLocation"]["uri"] == "svc.py"
+    assert loc["region"]["startLine"] >= 1
+    assert loc["region"]["endLine"] >= loc["region"]["startLine"]
+    assert res["level"] in ("error", "warning", "note")
+    assert res["ruleId"]
+
+    # every result's ruleId is defined in the driver rules
+    rule_ids = {r["id"] for r in run["tool"]["driver"]["rules"]}
+    assert all(r["ruleId"] in rule_ids for r in run["results"])
+    # the command-injection sink surfaces a CWE-78 tag somewhere
+    all_tags = [t for r in run["tool"]["driver"]["rules"] for t in r["properties"]["tags"]]
+    assert "external/cwe/CWE-78" in all_tags
+
+
 def test_socket_sink_requires_a_network_call():
     # socket. must fire on a real network call, not on a string literal or a
     # dataflow framework's pipeline "socket" objects (both were false positives).

@@ -17,7 +17,7 @@ only warns (a Semgrep tier would need its own sandbox --binary allowlist rule).
 
 Usage:
     deepen.py <repo_root> [--files f1 f2 ...] [--top N] [--max-hops N]
-                          [--semgrep] [--max-file-bytes N]
+                          [--semgrep] [--max-file-bytes N] [--sarif]
 """
 
 from __future__ import annotations
@@ -34,6 +34,7 @@ from common import (
     MAX_FILE_BYTES,
     Patterns,
     crawl,
+    cwe_for_sink_labels,
     load_patterns,
     parse_functions,
     read_text,
@@ -241,11 +242,14 @@ def bandit_findings(py_files: list[Path]) -> tuple[dict[str, list[dict]], list[s
         for issue in mgr.get_issue_list():
             fname = str(Path(issue.fname).resolve())
             sev = getattr(issue.severity, "name", str(issue.severity))
+            cwe_obj = getattr(issue, "cwe", None)
+            cwe_id = getattr(cwe_obj, "id", None)
             out.setdefault(fname, []).append(
                 {
                     "tool": "bandit",
                     "test_id": issue.test_id,
                     "severity": str(sev).lower(),
+                    "cwe": f"CWE-{cwe_id}" if cwe_id else None,
                     "line": issue.lineno,
                 }
             )
@@ -263,7 +267,12 @@ def _finding_from_issues(issues: list[dict]) -> dict:
     would let a medium SQLi mask a HIGH command-injection in the same function —
     a reader triaging by the displayed severity alone would badly under-rate it."""
     worst = max(issues, key=lambda i: (_SEVERITY_RANK.get(i.get("severity"), 0), -i.get("line", 0)))
-    finding = {"tool": "bandit", "test_id": worst["test_id"], "severity": worst["severity"]}
+    finding = {
+        "tool": "bandit",
+        "test_id": worst["test_id"],
+        "severity": worst["severity"],
+        "cwe": worst.get("cwe"),
+    }
     if len(issues) > 1:
         # tell the reader the badge is the worst of several, not the only one
         finding["n_findings"] = len(issues)
@@ -284,7 +293,12 @@ def attach_finding(
     if in_range:
         return _finding_from_issues(in_range)
     if sink_matches:
-        return {"tool": "regex-fallback", "test_id": None, "severity": None}
+        return {
+            "tool": "regex-fallback",
+            "test_id": None,
+            "severity": None,
+            "cwe": cwe_for_sink_labels(sink_matches),
+        }
     return None
 
 
@@ -542,7 +556,12 @@ def deepen(
                 hop_distance=-1,
                 ssrf_idor_flag=False,
                 priority_score=score,
-                finding={"tool": "regex-fallback", "test_id": None, "severity": None},
+                finding={
+                    "tool": "regex-fallback",
+                    "test_id": None,
+                    "severity": None,
+                    "cwe": cwe_for_sink_labels(labels),
+                },
             )
         )
 
@@ -571,6 +590,113 @@ def _rel(path_str: str, repo_root: Path) -> str:
         return path_str
 
 
+# ---------------------------------------------------------------------------
+# SARIF 2.1.0 rendering — lets any SARIF consumer (GitHub code scanning, IDEs,
+# a downstream harness) ingest the shortlist. CWE classes become rule tags
+# (external/cwe/CWE-NN) so consumers can group by weakness.
+# ---------------------------------------------------------------------------
+
+_SARIF_LEVEL = {"high": "error", "medium": "warning", "low": "note"}
+
+
+def _rule_id(cand: dict) -> str:
+    finding = cand.get("finding") or {}
+    if finding.get("tool") == "bandit" and finding.get("test_id"):
+        return finding["test_id"]
+    if finding.get("cwe"):
+        return finding["cwe"]
+    return f"code-triage/{cand['exposure']}"
+
+
+def _rule_desc(cand: dict, rid: str) -> str:
+    finding = cand.get("finding") or {}
+    if finding.get("tool") == "bandit":
+        return f"Bandit {rid} ({finding.get('cwe') or 'security'}), AST-verified"
+    if rid.startswith("CWE-"):
+        return f"Regex-matched sink, unverified ({rid})"
+    return f"Triage lead by exposure: {cand['exposure']}"
+
+
+def to_sarif(result: dict, repo_root: Path) -> dict:
+    """Render a deepen() result as a single SARIF 2.1.0 run. Each candidate becomes a
+    result located at its file/line range; each distinct rule carries the CWE as an
+    `external/cwe/CWE-NN` tag. deepen warnings become tool-execution notifications."""
+    rules: dict[str, dict] = {}
+    results: list[dict] = []
+
+    for c in result["candidates"]:
+        finding = c.get("finding") or {}
+        rid = _rule_id(c)
+        cwe = finding.get("cwe")
+        level = _SARIF_LEVEL.get((finding.get("severity") or "").lower(), "note")
+
+        if rid not in rules:
+            tags = ["security"] + ([f"external/cwe/{cwe}"] if cwe else [])
+            rules[rid] = {
+                "id": rid,
+                "name": rid.replace("/", "-"),
+                "shortDescription": {"text": _rule_desc(c, rid)},
+                "defaultConfiguration": {"level": level},
+                "properties": {"tags": tags},
+            }
+
+        fn = c.get("function") or "<module>"
+        sinks = ", ".join(c.get("sink_matches") or []) or "no direct sink"
+        tool_note = f"; {finding['tool']} {finding.get('test_id') or ''}".rstrip() if finding else ""
+        message = f"{c['exposure']}: {fn} — {sinks}{tool_note}" + (f" [{cwe}]" if cwe else "")
+
+        props = {
+            "priority_score": c["priority_score"],
+            "exposure": c["exposure"],
+            "is_entry_point": c["is_entry_point"],
+            "hop_distance": c["hop_distance"],
+            "ssrf_idor_flag": c["ssrf_idor_flag"],
+            "function": c.get("function"),
+            "tool": finding.get("tool"),
+        }
+        if cwe:
+            props["cwe"] = cwe
+        if finding.get("n_findings"):
+            props["n_findings"] = finding["n_findings"]
+
+        results.append({
+            "ruleId": rid,
+            "level": level,
+            "message": {"text": message},
+            "locations": [{
+                "physicalLocation": {
+                    "artifactLocation": {"uri": c["file"], "uriBaseId": "SRCROOT"},
+                    "region": {
+                        "startLine": max(1, c["line_start"]),
+                        "endLine": max(1, c["line_end"]),
+                    },
+                }
+            }],
+            "properties": props,
+        })
+
+    return {
+        "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+        "version": "2.1.0",
+        "runs": [{
+            "tool": {"driver": {
+                "name": "code-triage",
+                "informationUri": "https://github.com/deepset-ai/security-agent",
+                "version": "1.0.0",
+                "rules": list(rules.values()),
+            }},
+            "originalUriBaseIds": {"SRCROOT": {"uri": repo_root.resolve().as_uri() + "/"}},
+            "invocations": [{
+                "executionSuccessful": True,
+                "toolExecutionNotifications": [
+                    {"level": "note", "message": {"text": w}} for w in result.get("warnings", [])
+                ],
+            }],
+            "results": results,
+        }],
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Stage-2 deepen + rank triage candidates.")
     parser.add_argument("repo_root", help="Path to the repository.")
@@ -586,6 +712,10 @@ def main(argv: list[str] | None = None) -> int:
         help="Reserved — a Semgrep tier is not implemented yet; the flag only emits a warning.",
     )
     parser.add_argument("--max-file-bytes", type=int, default=MAX_FILE_BYTES, help="Skip files larger than this.")
+    parser.add_argument(
+        "--sarif", action="store_true",
+        help="Emit SARIF 2.1.0 instead of the default JSON (for GitHub code scanning, IDEs, etc.).",
+    )
     args = parser.parse_args(argv)
 
     repo_root = Path(args.repo_root)
@@ -601,7 +731,8 @@ def main(argv: list[str] | None = None) -> int:
         use_semgrep=args.semgrep,
         max_file_bytes=args.max_file_bytes,
     )
-    print(json.dumps(result, indent=2))
+    output = to_sarif(result, repo_root) if args.sarif else result
+    print(json.dumps(output, indent=2))
     return 0
 
 
