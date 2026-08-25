@@ -31,7 +31,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Non-root sandbox user (matches policy-additions.yaml run_as_user: sandbox).
-RUN useradd --create-home --home-dir /sandbox --shell /bin/bash sandbox || true \
+# uid/gid 999:999 to match the declared identity in
+# managed-image/contract.ts's MANAGED_IMAGE_RUNTIME_IDENTITIES (same as
+# pi and langchain-deepagents-code) -- candidate qualification verifies this.
+RUN groupadd --gid 999 sandbox || true \
+    && useradd --uid 999 --gid 999 --create-home --home-dir /sandbox --shell /bin/bash sandbox || true \
     && mkdir -p /sandbox/.security-triage/state /sandbox/.security-triage/logs
 
 # Python venv at /opt/venv, matching the managed_inference binary allowlist
@@ -79,6 +83,15 @@ RUN /opt/venv/bin/pip install /opt/security-triage-agent-cli \
 
 # Smoke-check the CLI is importable and on PATH at build time (via the wrapper).
 RUN /usr/local/bin/security-triage-agent --version
+
+# Required by every custom-Dockerfile agent's build contract (see
+# dockerfile-tool-disclosure-contract.ts): exactly one final-stage
+# `ARG NEMOCLAW_TOOL_DISCLOSURE=...` declaration, regardless of whether the
+# agent's runtime actually branches on it. This agent has no MCP/tool-search
+# surface (mcp.support: disabled in manifest.yaml), so the value is accepted
+# and otherwise unused -- same minimal treatment as agents/hermes/Dockerfile.
+ARG NEMOCLAW_TOOL_DISCLOSURE=progressive
+ENV NEMOCLAW_TOOL_DISCLOSURE=${NEMOCLAW_TOOL_DISCLOSURE}
 
 # The OpenShell L7 proxy is TLS-terminating (MITM); the anthropic SDK (httpx-based)
 # resolves CA trust via certifi.where(). Symlink certifi's bundle at SSL_CERT_FILE

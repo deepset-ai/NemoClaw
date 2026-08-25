@@ -390,6 +390,8 @@ function agentRoot(agent: ManagedStartupAgent, sandboxRoot: string): string {
       return path.join(sandboxRoot, ".deepagents");
     case "pi":
       return path.join(sandboxRoot, ".pi");
+    case "security-triage":
+      return path.join(sandboxRoot, ".security-triage");
   }
 }
 

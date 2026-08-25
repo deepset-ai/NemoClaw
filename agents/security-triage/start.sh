@@ -28,7 +28,17 @@ export PATH="/usr/local/bin:/opt/venv/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sb
 # SDK's "api key must be present" check without embedding a secret. An operator
 # who points ANTHROPIC_BASE_URL/ANTHROPIC_API_KEY elsewhere (e.g. real
 # Anthropic) wins.
-export ANTHROPIC_BASE_URL="${ANTHROPIC_BASE_URL:-${NEMOCLAW_INFERENCE_BASE_URL:-https://inference.local/v1}}"
+#
+# Unlike OpenAI's convention (base URLs end in /v1, the SDK appends bare
+# resource paths), the `anthropic` SDK's own default base_url
+# (https://api.anthropic.com) has NO /v1 suffix -- it appends the full
+# /v1/messages path itself. NEMOCLAW_INFERENCE_BASE_URL follows the
+# OpenAI-style convention (used by every other agent's OpenAI-compatible
+# generator) and may carry a trailing /v1; strip it here so requests don't
+# resolve to a doubled /v1/v1/messages against the managed-inference proxy.
+_anthropic_base_url="${ANTHROPIC_BASE_URL:-${NEMOCLAW_INFERENCE_BASE_URL:-https://inference.local}}"
+export ANTHROPIC_BASE_URL="${_anthropic_base_url%/v1}"
+unset _anthropic_base_url
 export ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-nemoclaw-managed-inference}"
 
 # Route egress through the managed proxy when NemoClaw injected its coordinates.

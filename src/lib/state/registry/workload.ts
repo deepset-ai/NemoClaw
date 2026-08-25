@@ -4,7 +4,7 @@
 import { Buffer } from "node:buffer";
 import { createHash } from "node:crypto";
 
-import { MANAGED_IMAGE_REPOSITORIES } from "../../onboard/managed-image/contract";
+import { isManagedImageAgent, MANAGED_IMAGE_REPOSITORIES } from "../../onboard/managed-image/contract";
 import {
   decodeManagedStartupProfile,
   MANAGED_STARTUP_PROFILE_MAX_BYTES,
@@ -118,7 +118,10 @@ export function cloneSandboxWorkloadReceipt(
   } catch {
     return undefined;
   }
-  if (!value.reference.startsWith(`${MANAGED_IMAGE_REPOSITORIES[profile.agent]}@sha256:`)) {
+  if (
+    !isManagedImageAgent(profile.agent) ||
+    !value.reference.startsWith(`${MANAGED_IMAGE_REPOSITORIES[profile.agent]}@sha256:`)
+  ) {
     return undefined;
   }
   const corporateCaBytes =
