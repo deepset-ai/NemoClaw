@@ -231,7 +231,7 @@ def bandit_findings(py_files: list[Path]) -> tuple[dict[str, list[dict]], list[s
         from bandit.core import config as b_config
         from bandit.core import manager as b_manager
     except Exception as exc:
-        return {}, [f"bandit unavailable ({exc.__class__.__name__}); used regex fallback for Python"]
+        return {}, [f"bandit unavailable ({exc.__class__.__name__}: {exc}); used regex fallback for Python"]
 
     try:
         conf = b_config.BanditConfig()

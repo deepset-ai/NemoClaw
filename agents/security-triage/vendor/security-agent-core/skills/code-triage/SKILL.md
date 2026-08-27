@@ -104,7 +104,7 @@ extra `openshell policy --binary` rule is needed for the default path.
 
 ```json
 {
-  "warnings": ["bandit unavailable (ImportError); used regex fallback for Python"],
+  "warnings": ["<EXAMPLE, not real output> bandit unavailable (ImportError: no module named 'bandit'); used regex fallback for Python"],
   "candidates": [
     {
       "file": "src/upload.py",
