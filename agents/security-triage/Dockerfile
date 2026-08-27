@@ -69,6 +69,27 @@ RUN python3 -m venv /opt/security-agent-core/skills/code-triage/venv \
     && /opt/security-agent-core/skills/code-triage/venv/bin/pip install \
         -r /opt/security-agent-core/skills/code-triage/requirements.txt
 
+# tree_sitter_language_pack downloads each language's compiled grammar lazily,
+# on first get_parser() call -- even for common languages like Python -- and
+# caches it under a directory keyed by PackConfig.cache_dir (default: HOME-
+# relative). Left unset, that first call happens at triage run time as the
+# `sandbox` user, whose egress policy correctly has no allowance for whatever
+# host the package downloads grammars from, so every parse fails closed
+# (regex-fallback only). Prefetch the skill's 8 supported languages
+# (common.py's EXT_TO_LANG) here at build time, into a fixed path common.py
+# also points at explicitly -- see its own `configure(PackConfig(cache_dir=...))`
+# call -- so the two agree regardless of which user (root here, `sandbox` at
+# run time) is asking.
+#
+# Deliberately calling get_parser() per language, not the package's own
+# download()/download_group() prefetch helpers: verified directly (not
+# assumed) that download() silently ignores the configured cache_dir and
+# writes to the OS-default user cache instead, while get_parser() -- the
+# exact call common.py makes at run time -- honours it correctly. Using the
+# same call here guarantees both agree on where to look.
+RUN /opt/security-agent-core/skills/code-triage/venv/bin/python3 -c "from tree_sitter_language_pack import configure, get_parser; from tree_sitter_language_pack.options import PackConfig; configure(PackConfig(cache_dir='/opt/security-agent-core/skills/code-triage/venv/tree-sitter-cache')); [get_parser(l) for l in ['python', 'javascript', 'typescript', 'tsx', 'go', 'java', 'c', 'cpp']]" \
+    && chown -R sandbox:sandbox /opt/security-agent-core/skills/code-triage/venv/tree-sitter-cache
+
 # Install the Security Triage agent runtime CLI. pyproject pulls haystack-ai==3.0.0
 # + anthropic-haystack~=5.13 (security-agent-core, installed above, is what
 # actually provides make_skill_script_tool). The pip entry point lands at
