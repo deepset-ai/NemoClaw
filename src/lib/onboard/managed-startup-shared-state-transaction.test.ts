@@ -198,6 +198,10 @@ describe("managed startup shared-state transaction", () => {
           fs.mkdirSync(path.join(root, "agent"));
           fs.writeFileSync(path.join(root, "agent", "models.json"), "{}\n");
         },
+        "security-triage": () => {
+          fs.mkdirSync(path.join(root, "state"));
+          fs.mkdirSync(path.join(root, "logs"));
+        },
       };
       createManagedDrift[agent]();
 
@@ -215,6 +219,7 @@ describe("managed startup shared-state transaction", () => {
         hermes: [".config-hash"],
         "langchain-deepagents-code": [".state", "skills"],
         pi: ["agent", path.join("agent", "models.json")],
+        "security-triage": ["state", "logs"],
       };
       expect(
         absentManagedPaths[agent].every((relativePath) =>

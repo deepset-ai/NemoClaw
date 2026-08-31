@@ -25,9 +25,10 @@ import { loadAgent } from "../../agent/defs";
 import type { SandboxEntry, SandboxWorkloadReceipt } from "../../state/registry/types";
 import { cloneSandboxWorkloadReceipt } from "../../state/registry/workload";
 import { createDockerManagedBootstrapSurface } from "../managed-bootstrap/docker-runtime";
-import { MANAGED_IMAGE_REPOSITORIES } from "../managed-image/contract";
+import { isManagedImageAgent, MANAGED_IMAGE_REPOSITORIES } from "../managed-image/contract";
 import {
   encodeManagedStartupProfile,
+  type ManagedStartupAgent,
   type ManagedStartupProfile,
 } from "../managed-startup/profile";
 import { registerCreatedSandbox } from "../sandbox-registration";
@@ -86,14 +87,21 @@ const MANAGED_RECEIPT = {
 
 type ManagedWorkloadReceipt = Extract<SandboxWorkloadReceipt, { readonly kind: "managed-image" }>;
 
+function throwNotManagedImageAgent(agent: ManagedStartupAgent): never {
+  throw new Error(`${agent} is not a managed-image agent`);
+}
+
 function receiptForProfile(
   profile: ManagedStartupProfile,
   corporateCaB64?: string,
 ): ManagedWorkloadReceipt {
+  const managedImageAgent = isManagedImageAgent(profile.agent)
+    ? profile.agent
+    : throwNotManagedImageAgent(profile.agent);
   const encodedProfile = encodeManagedStartupProfile(profile);
   return {
     ...MANAGED_RECEIPT,
-    reference: `${MANAGED_IMAGE_REPOSITORIES[profile.agent]}@sha256:${"a".repeat(64)}`,
+    reference: `${MANAGED_IMAGE_REPOSITORIES[managedImageAgent]}@sha256:${"a".repeat(64)}`,
     encodedProfile,
     startupProfileSha256: createHash("sha256").update(encodedProfile, "utf8").digest("hex"),
     ...(corporateCaB64 === undefined ? {} : { corporateCaB64 }),

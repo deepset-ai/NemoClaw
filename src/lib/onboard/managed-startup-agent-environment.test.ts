@@ -267,6 +267,48 @@ function piProfile(): ManagedStartupProfile {
   };
 }
 
+function securityTriageProfile(): ManagedStartupProfile {
+  return {
+    schemaVersion: MANAGED_STARTUP_PROFILE_SCHEMA_VERSION,
+    agent: "security-triage",
+    agentConfig: { agent: "security-triage" },
+    inference: {
+      routeProvider: "custom",
+      upstreamProvider: "anthropic-prod",
+      model: "claude-sonnet-5",
+      routedBaseUrl: "https://inference.local/v1",
+      upstreamEndpointUrl: null,
+      api: "anthropic-messages",
+      primaryModelRef: null,
+      compatibility: null,
+      inputModalities: null,
+    },
+    proxy: {
+      managedHost: "10.200.0.1",
+      managedPort: 3128,
+      hostHttpUrl: null,
+      hostHttpsUrl: null,
+      hostNoProxy: [],
+    },
+    dashboard: {
+      agent: "security-triage",
+      mode: "disabled",
+    },
+    tools: {
+      disclosure: "progressive",
+      enabledGateways: [],
+    },
+    messaging: { plan: null },
+    tuning: {
+      contextWindow: null,
+      maxTokens: null,
+      reasoning: null,
+      reasoningEffort: null,
+    },
+    corporateCa: { bundleSha256: CA_SHA256 },
+  };
+}
+
 function decodeBase64Json(encoded: string): unknown {
   return JSON.parse(Buffer.from(encoded, "base64").toString("utf8")) as unknown;
 }
@@ -286,6 +328,7 @@ const PROFILES: Readonly<Record<ManagedStartupAgent, () => ManagedStartupProfile
   hermes: hermesProfile,
   "langchain-deepagents-code": dcodeProfile,
   pi: piProfile,
+  "security-triage": securityTriageProfile,
 };
 
 describe("managed startup agent environment", () => {
