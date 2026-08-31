@@ -46,6 +46,41 @@ EXPOSURE_BASE: dict[str, int] = {
     "neutral": 10,
 }
 
+# Primary CWE weakness class per sink label — the class a reader should assume when
+# that sink appears. A triage hint, not a proof. Used for the `cwe` field in findings
+# and for the SARIF taxonomy tags. Bandit findings prefer Bandit's own CWE instead.
+SINK_CWE: dict[str, str] = {
+    # outbound request -> SSRF
+    "requests.*": "CWE-918", "urllib": "CWE-918", "urlopen": "CWE-918",
+    "httpx": "CWE-918", "socket": "CWE-918", "http.Get/Post/NewRequest": "CWE-918",
+    "http(s).request": "CWE-918", "client.Do/Get/Post": "CWE-918",
+    "fetch()": "CWE-918", "axios": "CWE-918",
+    # process/command execution -> OS command injection
+    "subprocess": "CWE-78", "os.system": "CWE-78", "system()": "CWE-78",
+    "popen()": "CWE-78", "exec-family()": "CWE-78", "exec.Command": "CWE-78",
+    "Runtime.getRuntime": "CWE-78", "ProcessBuilder": "CWE-78",
+    # dynamic code evaluation -> eval injection
+    "eval()": "CWE-95", "exec()": "CWE-95",
+    # unsafe deserialization
+    "pickle.loads": "CWE-502", "yaml.load": "CWE-502",
+    # SQL
+    ".execute()": "CWE-89", ".raw()": "CWE-89",
+    # file access -> path traversal
+    "open()": "CWE-22",
+}
+
+# When several sinks match one function, report the most severe class.
+_CWE_SEVERITY = {"CWE-78": 5, "CWE-95": 5, "CWE-502": 5, "CWE-89": 4, "CWE-918": 3, "CWE-22": 2}
+
+
+def cwe_for_sink_labels(labels: list[str]) -> str | None:
+    """The most severe CWE class among the matched sink labels, or None."""
+    cwes = [SINK_CWE[label] for label in labels if label in SINK_CWE]
+    if not cwes:
+        return None
+    return max(cwes, key=lambda c: _CWE_SEVERITY.get(c, 0))
+
+
 # Extension -> tree_sitter_language_pack language name.
 EXT_TO_LANG: dict[str, str] = {
     ".py": "python",
@@ -357,13 +392,12 @@ def parse_functions(path: Path, content: str) -> tuple[list[Function], str | Non
         from tree_sitter_language_pack import configure, get_parser
         from tree_sitter_language_pack.options import PackConfig
 
-        # Pin the same cache_dir the Dockerfile's build-time prefetch step
+        # Pin the same cache_dir a consuming image's build-time prefetch step
         # uses (venv/tree-sitter-cache, next to this skill's own venv), so a
-        # grammar downloaded as root at build time is found here at run time
-        # as the sandbox user -- the package's default is HOME-relative, and
-        # those two users have different HOMEs. A missing/uncached grammar
-        # still fails open (caught below), just via a real network fetch
-        # instead of a hit.
+        # grammar downloaded ahead of time is found here later under a
+        # different user/HOME -- the package's default cache location is
+        # HOME-relative. A missing/uncached grammar still fails open (caught
+        # below), just via a real network fetch instead of a hit.
         configure(PackConfig(cache_dir=str(Path(__file__).resolve().parent.parent / "venv" / "tree-sitter-cache")))
     except Exception as exc:  # ImportError or a broken install
         return [], f"tree-sitter unavailable ({exc.__class__.__name__}); function resolution skipped"
