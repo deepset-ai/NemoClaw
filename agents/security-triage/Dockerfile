@@ -8,7 +8,15 @@
 #
 # Build context is the repo root: `docker build -t <ref> -f
 # agents/security-triage/Dockerfile <rootDir>`.
-ARG BASE_IMAGE=python:3.12-slim-bookworm
+# BASE_IMAGE must ship glibc >= 2.39: the OpenShell gateway bind-mounts the HOST
+# openshell-sandbox binary (aarch64-unknown-linux-gnu, openshell 0.0.106) into this
+# image at /opt/openshell/bin/openshell-sandbox, and that binary links GLIBC_2.38 and
+# GLIBC_2.39. On slim-bookworm (Debian 12, glibc 2.36) the in-container supervisor
+# cannot exec, so the sandbox restart-loops and never reaches Ready. Trixie is
+# glibc 2.41. Sibling agents avoid this by taking BASE_IMAGE from NemoClaw
+# (the managed ghcr.io/nvidia/nemoclaw/sandbox-base), which the --from Dockerfile
+# path does not supply.
+ARG BASE_IMAGE=python:3.12-slim-trixie
 FROM ${BASE_IMAGE}
 
 ENV PYTHONUNBUFFERED=1 \
