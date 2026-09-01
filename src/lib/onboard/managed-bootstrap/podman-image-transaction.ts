@@ -50,6 +50,7 @@ const PODMAN_BOOTSTRAP_AGENTS = Object.freeze({
   hermes: true,
   "langchain-deepagents-code": true,
   pi: false,
+  "security-triage": false,
 } satisfies Record<ManagedStartupAgent, boolean>);
 
 export interface PodmanBootstrapImageTransactionInput {

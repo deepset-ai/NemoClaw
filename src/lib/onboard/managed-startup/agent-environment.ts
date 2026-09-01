@@ -44,7 +44,9 @@ export interface ManagedStartupRootOwnedFileMaterial {
     | "/usr/local/share/nemoclaw/dcode-reasoning-effort"
     | "/usr/local/share/nemoclaw/dcode-upstream-provider"
     | "/usr/local/share/nemoclaw/pi-proxy-host"
-    | "/usr/local/share/nemoclaw/pi-proxy-port";
+    | "/usr/local/share/nemoclaw/pi-proxy-port"
+    | "/usr/local/share/nemoclaw/security-triage-proxy-host"
+    | "/usr/local/share/nemoclaw/security-triage-proxy-port";
   readonly contents: string;
   readonly owner: "root";
   readonly group: "root";
@@ -616,6 +618,65 @@ function mapPiProfile(
 }
 
 /**
+ * Security Triage has a single Anthropic inference role and no exposed
+ * tuning knobs (unlike Pi's context-window/max-tokens/reasoning trio), so
+ * this is Pi's mapper with the tuning fields dropped.
+ */
+function mapSecurityTriageProfile(
+  profile: ManagedStartupProfile,
+  environment: ApplicationEnvironment,
+): ManagedStartupAgentEnvironment {
+  if (
+    profile.agent !== "security-triage" ||
+    profile.agentConfig.agent !== "security-triage" ||
+    profile.dashboard.agent !== "security-triage" ||
+    profile.messaging.plan !== null
+  ) {
+    throw new ManagedStartupAgentEnvironmentError("Security Triage profile state is inconsistent");
+  }
+
+  const configurationEnvironment: MutableEnvironment = {
+    ...commonConfigurationEnvironment(profile),
+  };
+  appendHostProxyEnvironment(configurationEnvironment, profile);
+  const runtimeEnvironment: MutableEnvironment = { ...configurationEnvironment };
+  delete runtimeEnvironment.NEMOCLAW_INFERENCE_BASE_URL;
+  for (const name of [
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "NO_PROXY",
+    "http_proxy",
+    "https_proxy",
+    "no_proxy",
+  ]) {
+    delete runtimeEnvironment[name];
+  }
+  const materials: readonly ManagedStartupAgentMaterial[] = Object.freeze([
+    corporateCaMaterial(profile),
+    rootOwnedFile(
+      "NEMOCLAW_PROXY_HOST",
+      "/usr/local/share/nemoclaw/security-triage-proxy-host",
+      profile.proxy.managedHost,
+    ),
+    rootOwnedFile(
+      "NEMOCLAW_PROXY_PORT",
+      "/usr/local/share/nemoclaw/security-triage-proxy-port",
+      String(profile.proxy.managedPort),
+    ),
+  ]);
+
+  return Object.freeze({
+    schemaVersion: profile.schemaVersion,
+    agent: profile.agent,
+    configurationEnvironment: sortedEnvironment(configurationEnvironment),
+    runtimeEnvironment: sortedEnvironment(runtimeEnvironment),
+    applicationRuntime: applicationRuntimePlan(profile, environment),
+    materials,
+    actions: applicationActions(profile, null),
+  });
+}
+
+/**
  * Convert a secret-free validated profile into existing agent-generator and
  * entrypoint inputs without depending on Docker, Podman, or another compute
  * driver. Validation is repeated at this trust boundary so callers cannot use
@@ -635,5 +696,7 @@ export function mapManagedStartupProfileToAgentEnvironment(
       return mapDcodeProfile(validated, environment);
     case "pi":
       return mapPiProfile(validated, environment);
+    case "security-triage":
+      return mapSecurityTriageProfile(validated, environment);
   }
 }

@@ -1,0 +1,18 @@
+.venv/
+# Per-skill venvs auto-provisioned by skill_script_tool at runtime
+skills/*/venv/
+__pycache__/
+*.pyc
+.env
+uv.lock
+
+# Runtime artifacts. Per-benchmark runs stores live under runs/<benchmark>/. The committed seeds
+# (seeds/<benchmark>.yaml), promoted pipelines (pipelines/), and meta-agent directives (programs/)
+# are the tracked source of truth — not ignored.
+runs*/
+traces/
+benchmark_data/
+
+# Meta-agent-generated custom components (versioned copies live under runs/components/)
+src/security_agent/optimize/generated/*.py
+!src/security_agent/optimize/generated/__init__.py

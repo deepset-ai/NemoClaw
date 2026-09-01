@@ -199,6 +199,32 @@ export function managedStartupE2eProfile(
           reasoningEffort: null,
         },
       };
+    case "security-triage":
+      return {
+        ...common,
+        agent,
+        agentConfig: { agent },
+        inference: {
+          ...common.inference,
+          routeProvider: "custom",
+          upstreamProvider: "anthropic-prod",
+          model: "claude-sonnet-5",
+          api: "anthropic-messages",
+          primaryModelRef: null,
+          compatibility: null,
+          inputModalities: null,
+        },
+        dashboard: {
+          agent,
+          mode: "disabled",
+        },
+        tuning: {
+          contextWindow: null,
+          maxTokens: null,
+          reasoning: null,
+          reasoningEffort: null,
+        },
+      };
   }
 }
 

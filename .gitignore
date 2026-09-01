@@ -54,3 +54,9 @@ secrets.yaml
 service-account*.json
 token.json
 .e2e/
+
+# Python POC agent CLI virtualenvs / build artifacts (agents/*/poc-cli)
+agents/*/poc-cli/.venv/
+agents/*/poc-cli/build/
+**/__pycache__/
+*.egg-info/

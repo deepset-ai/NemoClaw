@@ -68,6 +68,7 @@ const EXPECTED_AFFORDANCE_INVENTORY_SHA256 = {
   hermes: "26c2dc3750274e5c2a79bf382a4b18b3cf26c0ef64938e91b694427aa23756e8",
   "langchain-deepagents-code": "08c75cf22495ec93a090bc5b70544eac65970e658b10fba057dea5ffef502e4a",
   pi: "6302d387182c596fd67ad18577ecf82107bad6271aeeb5e69714115f91557abb",
+  "security-triage": "195e7f361cf83f2fee7b896579c3ceb680498645368920b42e3b951244e5e08a",
 } as const satisfies Record<ManagedStartupAgent, string>;
 
 const INVENTORY_INPUTS = new Set(

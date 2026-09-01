@@ -212,6 +212,9 @@ function currentAgentConfig(
   if (profile.agentConfig.agent === "pi") {
     return profile.agentConfig;
   }
+  if (profile.agentConfig.agent === "security-triage") {
+    return profile.agentConfig;
+  }
   if (profile.agentConfig.agent !== "langchain-deepagents-code") {
     return {
       ...profile.agentConfig,
@@ -399,7 +402,11 @@ function destinationMessagingPlan(
   destinationSandboxName: string,
 ): ManagedStartupJsonObject | null {
   if (profile.messaging.plan === null) return null;
-  if (profile.agent === "langchain-deepagents-code" || profile.agent === "pi") {
+  if (
+    profile.agent === "langchain-deepagents-code" ||
+    profile.agent === "pi" ||
+    profile.agent === "security-triage"
+  ) {
     fail(`${profile.agent} cannot carry a messaging plan`);
   }
   const rebound = rebindSandboxMessagingPlanForClone({

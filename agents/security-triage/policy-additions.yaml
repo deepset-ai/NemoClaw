@@ -1,0 +1,68 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sandbox policy additions for the Security Triage runtime. Principle: deny by
+# default, allow the gateway process and managed inference only. Modeled on
+# agents/deep-research/policy-additions.yaml, but with the Tavily and web_read
+# network blocks dropped entirely (this agent has no web-search/URL-fetch tool)
+# and the pypi block dropped too (security-agent-core + the code-triage skill's
+# venv are both baked into the image at build time -- no runtime pip installs,
+# see the Dockerfile). Net effect: this agent's egress surface is exactly one
+# host, smaller than every sibling agent's.
+#
+# `include_workdir: true` is how the target repo becomes available inside the
+# sandbox for the skill to triage -- no clone/mount step needed, matching
+# langchain-deepagents-code's mechanism (its own policy-additions.yaml sets the
+# same flag for the same reason).
+
+version: 1
+
+filesystem_policy:
+  include_workdir: true
+  read_only:
+    - /usr
+    - /opt/venv
+    - /opt/security-agent-core
+    - /lib
+    - /proc
+    - /dev/urandom
+    - /app
+    - /etc
+    - /var/log
+  read_write:
+    - /sandbox
+    - /sandbox/.security-triage
+    - /tmp
+    - /dev/null
+
+landlock:
+  compatibility: strict
+
+process:
+  run_as_user: sandbox
+  run_as_group: sandbox
+
+network_policies:
+  managed_inference:
+    name: managed_inference
+    endpoints:
+      - host: inference.local
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        rules:
+          # AnthropicChatGenerator calls the Messages API -- POST /v1/messages.
+          # GET /v1/models kept for parity with the OpenAI-compatible manifests'
+          # model-listing surface, in case a managed-inference model picker uses it.
+          - allow: { method: POST, path: "/v1/messages" }
+          - allow: { method: GET, path: "/v1/models" }
+          - allow: { method: GET, path: "/v1/models/**" }
+    binaries:
+      # The kernel-resolved symlink target fix from the deep-research POC
+      # (DEEP_RESEARCH_POC_REPORT.md:158-172): /opt/venv/bin/python3 is a
+      # symlink to /usr/local/bin/python3.12 (the base image's interpreter),
+      # and OpenShell attributes egress to the kernel-resolved binary, not the
+      # symlink path -- so both must be listed.
+      - { path: /usr/local/bin/security-triage-agent }
+      - { path: /opt/venv/bin/python3* }
+      - { path: /usr/local/bin/python3* }

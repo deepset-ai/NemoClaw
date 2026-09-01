@@ -128,6 +128,7 @@ export const MANAGED_STARTUP_AGENTS = [
   "hermes",
   "langchain-deepagents-code",
   "pi",
+  "security-triage",
 ] as const;
 
 export type ManagedStartupAgent = (typeof MANAGED_STARTUP_AGENTS)[number];
@@ -218,11 +219,17 @@ export interface ManagedStartupPiDashboard {
   readonly mode: "disabled";
 }
 
+export interface ManagedStartupSecurityTriageDashboard {
+  readonly agent: "security-triage";
+  readonly mode: "disabled";
+}
+
 export type ManagedStartupDashboard =
   | ManagedStartupOpenClawDashboard
   | ManagedStartupHermesDashboard
   | ManagedStartupDcodeDashboard
-  | ManagedStartupPiDashboard;
+  | ManagedStartupPiDashboard
+  | ManagedStartupSecurityTriageDashboard;
 
 export interface ManagedStartupWebSearch {
   readonly enabled: boolean;
@@ -314,11 +321,16 @@ export interface ManagedStartupPiConfig {
   readonly agent: "pi";
 }
 
+export interface ManagedStartupSecurityTriageConfig {
+  readonly agent: "security-triage";
+}
+
 export type ManagedStartupAgentConfig =
   | ManagedStartupOpenClawConfig
   | ManagedStartupHermesConfig
   | ManagedStartupDcodeConfig
-  | ManagedStartupPiConfig;
+  | ManagedStartupPiConfig
+  | ManagedStartupSecurityTriageConfig;
 
 export interface ManagedStartupProfile {
   readonly schemaVersion: typeof MANAGED_STARTUP_PROFILE_SCHEMA_VERSION;
@@ -444,6 +456,27 @@ const PROFILE_CAPABILITIES = {
     webSearchProviders: [],
     toolGateways: [],
     tuningFields: ["contextWindow", "maxTokens", "reasoning"],
+    supportsMessaging: false,
+    supportsInferenceCompatibility: false,
+    supportsUpstreamEndpoint: false,
+    supportsHostProxyIntent: true,
+    supportsPrimaryModelRef: false,
+    supportsAgentTimeout: false,
+    supportsHeartbeat: false,
+    supportsExtraAgents: false,
+    supportsDeviceAuth: false,
+    observability: "none",
+    supportsMinimalBootstrap: false,
+  },
+  "security-triage": {
+    // One-shot triage run, single Anthropic inference role -- no per-role
+    // model split like deep-research's five sub-agent LLMs.
+    inferenceApis: ["anthropic-messages"],
+    dashboardModes: ["disabled"],
+    inputModalities: [],
+    webSearchProviders: [],
+    toolGateways: [],
+    tuningFields: [],
     supportsMessaging: false,
     supportsInferenceCompatibility: false,
     supportsUpstreamEndpoint: false,
@@ -618,6 +651,23 @@ export const MANAGED_STARTUP_PROFILE_AFFORDANCE_INVENTORY = {
     ),
     ...HOST_PROXY_AFFORDANCES,
   ],
+  "security-triage": [
+    affordance("NEMOCLAW_MODEL", "inference.model"),
+    affordance("NEMOCLAW_INFERENCE_PROVIDER_ID", "inference.routeProvider"),
+    affordance("NEMOCLAW_UPSTREAM_PROVIDER", "inference.upstreamProvider"),
+    affordance("NEMOCLAW_INFERENCE_BASE_URL", "inference.routedBaseUrl"),
+    affordance("NEMOCLAW_INFERENCE_API", "inference.api"),
+    affordance("NEMOCLAW_TOOL_DISCLOSURE", "tools.disclosure"),
+    affordance("NEMOCLAW_PROXY_HOST", "proxy.managedHost"),
+    affordance("NEMOCLAW_PROXY_PORT", "proxy.managedPort"),
+    affordance(
+      "NEMOCLAW_CORPORATE_CA_B64",
+      "corporateCa.bundleSha256",
+      "host-material",
+      "digest-handoff",
+    ),
+    ...HOST_PROXY_AFFORDANCES,
+  ],
 } as const satisfies Record<ManagedStartupAgent, readonly ManagedStartupAffordance[]>;
 
 export type ManagedStartupDeferredRuntimeOwner =
@@ -736,6 +786,13 @@ export const MANAGED_STARTUP_PROFILE_DEFERRED_RUNTIME_INPUTS = Object.freeze({
     ),
   ]),
   pi: Object.freeze([
+    deferredRuntimeInput(
+      "NEMOCLAW_EXTRA_PLACEHOLDER_KEYS",
+      "credential-plumbing",
+      "credential provider construction owns key metadata outside the secret-free profile",
+    ),
+  ]),
+  "security-triage": Object.freeze([
     deferredRuntimeInput(
       "NEMOCLAW_EXTRA_PLACEHOLDER_KEYS",
       "credential-plumbing",
@@ -873,6 +930,14 @@ export const MANAGED_STARTUP_PROFILE_EXCLUDED_DOCKER_INPUTS = {
     { input: "BASE_IMAGE", reason: "release-composition" },
     { input: "NEMOCLAW_MANAGED_IMAGE_CAPABILITY_UNION", reason: "release-composition" },
     { input: "PI_VERSION", reason: "integrity-pin" },
+    { input: "NEMOCLAW_BUILD_ID", reason: "build-provenance" },
+    { input: "NEMOCLAW_DARWIN_VM_COMPAT", reason: "platform-build" },
+    { input: "TARGETARCH", reason: "platform-build" },
+    { input: "NEMOCLAW_MANAGED_IMAGE_RUNTIME_USER", reason: "fixed-image-contract" },
+  ],
+  "security-triage": [
+    { input: "BASE_IMAGE", reason: "release-composition" },
+    { input: "NEMOCLAW_MANAGED_IMAGE_CAPABILITY_UNION", reason: "release-composition" },
     { input: "NEMOCLAW_BUILD_ID", reason: "build-provenance" },
     { input: "NEMOCLAW_DARWIN_VM_COMPAT", reason: "platform-build" },
     { input: "TARGETARCH", reason: "platform-build" },

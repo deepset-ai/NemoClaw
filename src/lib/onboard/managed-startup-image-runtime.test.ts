@@ -81,6 +81,8 @@ function dashboard(agent: ManagedStartupAgent): ManagedStartupDashboard {
       return { agent, mode: "disabled" };
     case "pi":
       return { agent, mode: "disabled" };
+    case "security-triage":
+      return { agent, mode: "disabled" };
   }
 }
 
@@ -89,7 +91,7 @@ function actionInput(
   mode: "apply" | "clear" = "apply",
 ): ManagedStartupImageActionPlanInput {
   const messagingActions =
-    agent === "langchain-deepagents-code" || agent === "pi"
+    agent === "langchain-deepagents-code" || agent === "pi" || agent === "security-triage"
       ? []
       : [
           {

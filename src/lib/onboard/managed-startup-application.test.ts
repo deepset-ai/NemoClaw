@@ -52,6 +52,8 @@ function agentConfigFor(agent: ManagedStartupAgent): ManagedStartupAgentConfig {
       return { agent, autoApprovalMode: "thread-opt-in", observabilityEnabled: true };
     case "pi":
       return { agent };
+    case "security-triage":
+      return { agent };
   }
 }
 
@@ -105,7 +107,9 @@ function profileFor(
           }
         : agent === "pi"
           ? { agent, mode: "disabled" as const }
-          : { agent, mode: "disabled" as const };
+          : agent === "security-triage"
+            ? { agent, mode: "disabled" as const }
+            : { agent, mode: "disabled" as const };
   return {
     schemaVersion: MANAGED_STARTUP_PROFILE_SCHEMA_VERSION,
     agent,

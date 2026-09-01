@@ -543,6 +543,11 @@ function generatorCommand(agent: ManagedStartupAgent): readonly string[] {
         "--experimental-strip-types",
         "/opt/nemoclaw-pi/generate-config.ts",
       ];
+    case "security-triage":
+      return [
+        "/opt/venv/bin/python3",
+        "/opt/nemoclaw-security-triage-config/generate_config.py",
+      ];
   }
 }
 
