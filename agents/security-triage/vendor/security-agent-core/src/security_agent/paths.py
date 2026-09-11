@@ -16,6 +16,10 @@ CWE_REFERENCE = DATA_DIR / "cwe_reference.json"
 # itself lives in Qdrant, not on this filesystem — see docker-compose.yml.
 KB_CACHE_DIR = DATA_DIR / "kb_cache"
 BENCHMARK_DATA = PROJECT_ROOT / "benchmark_data"     # pre-sampled per-benchmark task files
+# Our NeMo Gym components (resources servers + their configs and data). Kept in this repo rather
+# than inside a Gym checkout; `gym --search-dir <this>` makes them discoverable. See
+# bogdan/nemo-gym-integration-plan.md §1.6.
+GYM_DIR = PROJECT_ROOT / "gym"
 TRACE_DIR = PROJECT_ROOT / "traces"
 TRACE_FILE = TRACE_DIR / "traces.jsonl"              # eval traces
 

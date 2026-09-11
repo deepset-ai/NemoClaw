@@ -16,8 +16,43 @@ from dataclasses import dataclass, field
 # reconstructs tools from a seed offline, or in tests. The value is never used to call the API; a
 # real key from .env wins at runtime. This is THE deserialization path, so setting it here covers
 # every caller.
-os.environ.setdefault("ANTHROPIC_API_KEY", "sk-ant-placeholder-for-yaml-generation")
-os.environ.setdefault("OPENAI_API_KEY", "sk-placeholder-for-yaml-generation")
+#
+# The cost of that convenience: importing this module makes both variables *truthy* process-wide, so
+# `if os.environ.get("ANTHROPIC_API_KEY")` stops answering "can a live call succeed?" and starts
+# answering "has this module been imported?". Anything gating real API traffic — most of all a test's
+# skip guard — must ask `has_real_api_key`, or a keyless run stops skipping and fails on auth.
+ANTHROPIC_PLACEHOLDER_KEY = "sk-ant-placeholder-for-yaml-generation"
+OPENAI_PLACEHOLDER_KEY = "sk-placeholder-for-yaml-generation"
+PLACEHOLDER_API_KEYS = frozenset({ANTHROPIC_PLACEHOLDER_KEY, OPENAI_PLACEHOLDER_KEY})
+
+os.environ.setdefault("ANTHROPIC_API_KEY", ANTHROPIC_PLACEHOLDER_KEY)
+os.environ.setdefault("OPENAI_API_KEY", OPENAI_PLACEHOLDER_KEY)
+
+
+def has_real_api_key(variable: str) -> bool:
+    """True when `variable` holds a key that could actually reach the provider."""
+    value = (os.environ.get(variable) or "").strip()
+    return bool(value) and value not in PLACEHOLDER_API_KEYS
+
+
+def load_real_credentials(env_path) -> None:
+    """Load `.env`, replacing only the placeholders this module installed.
+
+    `load_dotenv` will not overwrite a variable that is already set, and importing this module sets
+    both key variables — so a plain `load_dotenv` after this import silently keeps the placeholder.
+    Callers used to work around that by loading `.env` at *import* time, which mutated the
+    environment of anything that merely imported them; under pytest that turned a keyless run into
+    a live, billable API call. This replaces placeholders and leaves real values (from the shell,
+    or already loaded) alone.
+    """
+    from dotenv import dotenv_values
+
+    for name, value in dotenv_values(env_path).items():
+        if not value:
+            continue
+        current = os.environ.get(name)
+        if current is None or current in PLACEHOLDER_API_KEYS:
+            os.environ[name] = value
 
 from haystack.components.agents import Agent  # noqa: E402
 from haystack.core.serialization_security import allow_deserialization_module  # noqa: E402

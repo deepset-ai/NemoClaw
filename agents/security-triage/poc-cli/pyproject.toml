@@ -15,7 +15,6 @@ dependencies = [
   # installed separately in the Dockerfile (a local path install, since it is
   # not published to PyPI) -- listing it here too would try to resolve it there.
   "haystack-ai==3.0.0",
-  "anthropic-haystack~=5.13",
 ]
 
 [project.scripts]

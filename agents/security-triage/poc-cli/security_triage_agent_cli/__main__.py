@@ -9,6 +9,7 @@ import json
 import sys
 import threading
 import time
+from pathlib import Path
 
 from . import __version__
 
@@ -16,7 +17,7 @@ from . import __version__
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="security-triage-agent",
-        description="Security triage agent runtime for NemoClaw (POC).",
+        description="Security triage agent runtime for NemoClaw: scan a repository with a Haystack Agent.",
     )
     parser.add_argument("--version", action="version", version=__version__)
     sub = parser.add_subparsers(dest="command")
@@ -25,11 +26,14 @@ def main(argv: list[str] | None = None) -> int:
     gw.add_argument("--host", default="127.0.0.1")
     gw.add_argument("--port", type=int, default=8661)
 
-    rn = sub.add_parser("run", help="Run a one-shot triage over a repo and print the report.")
-    # No URL/clone flag: the target repo arrives as the sandbox's working
-    # directory (policy-additions.yaml `include_workdir: true`), so this
-    # defaults to cwd.
-    rn.add_argument("--repo", default=".", help="Path to the repo to triage (default: cwd).")
+    rn = sub.add_parser("run", help="Scan one repository and write a JSON report (findings + trajectory).")
+    rn.add_argument("--repo", default=".", help="Path to the repository to scan (default: cwd).")
+    rn.add_argument("--out", default=None, help="Reports directory (default: /sandbox/.security-triage/reports).")
+    rn.add_argument("--config", default=None, help="Agent YAML (default: uploaded agent.yaml, else the packaged seed).")
+    rn.add_argument("--model", default=None, help="Served model name (default: $NEMOCLAW_MODEL, else the YAML's).")
+    rn.add_argument("--max-steps", type=int, default=None, help="Override the YAML's max_agent_steps.")
+    rn.add_argument("--name", default=None, help="Report name (default: the repo directory name).")
+    rn.add_argument("--print-report", action="store_true", help="Also print the parsed report JSON to stdout.")
 
     args = parser.parse_args(argv)
 
@@ -40,34 +44,37 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "run":
-        from .agent_runtime import run_once
+        from .agent_runtime import DEFAULT_REPORTS_DIR, run_once
 
-        # A triage run is a single blocking Agent.run() call with no
-        # intermediate output — on a multi-file repo it can go several minutes
-        # between the process's first and last line of output. That reads as
-        # hung to anything watching for liveness, so heartbeat while it works.
+        # One scan is a single blocking Agent.run() with no intermediate output; on a real repo it
+        # can go minutes between lines. Heartbeat so a watcher can tell "working" from "hung".
         stop = threading.Event()
 
         def _heartbeat() -> None:
             start = time.monotonic()
-            while not stop.wait(20):
-                print(
-                    f"[security-triage-agent] still triaging... "
-                    f"{int(time.monotonic() - start)}s elapsed",
-                    file=sys.stderr,
-                    flush=True,
-                )
+            while not stop.wait(30):
+                print(f"[security-triage-agent] still scanning... {int(time.monotonic() - start)}s elapsed",
+                      file=sys.stderr, flush=True)
 
-        beat = threading.Thread(target=_heartbeat, daemon=True)
-        beat.start()
+        threading.Thread(target=_heartbeat, daemon=True).start()
         try:
-            report, meta = run_once(args.repo)
+            record = run_once(
+                args.repo, config_path=args.config, model=args.model, max_steps=args.max_steps, name=args.name
+            )
         finally:
             stop.set()
 
-        print(f"[security-triage-agent run-meta] {json.dumps(meta, default=str)}", file=sys.stderr, flush=True)
-        print(report, flush=True)
-        return 0
+        from security_agent.repo_scan import summary_line
+
+        out_dir = Path(args.out) if args.out else DEFAULT_REPORTS_DIR
+        out_dir.mkdir(parents=True, exist_ok=True)
+        target = out_dir / f"{record['repo']}.json"
+        target.write_text(json.dumps(record, indent=2, default=str))
+        print(summary_line(record), flush=True)
+        print(f"report: {target}", flush=True)
+        if args.print_report:
+            print(json.dumps(record.get("report"), indent=2), flush=True)
+        return 0 if not record.get("error") else 1
 
     parser.print_help()
     return 2

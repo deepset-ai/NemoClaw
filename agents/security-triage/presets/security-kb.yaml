@@ -1,0 +1,31 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Optional policy preset: let the Security Triage agent's `search_security_kb` tool reach the
+# host-side security knowledge base (security-agent-core/scripts/kb_server.py, started with
+# dgx-spark's scripts/serve-kb.sh) on the openshell-docker bridge. Nothing else opens up: one
+# host, one port, POST /search and GET /health, from the agent's python only.
+#
+#   nemoclaw <sandbox> policy add --from-file agents/security-triage/presets/security-kb.yaml --dry-run
+#   nemoclaw <sandbox> policy add --from-file agents/security-triage/presets/security-kb.yaml --yes
+#
+# host.openshell.internal is the one host NemoClaw admits without a private-host trust flag: it is
+# the sandbox-to-host bridge, and the KB server binds exactly that gateway address plus loopback.
+preset:
+  name: security-kb
+  description: "Host-side security knowledge base (CWE / NVD / ExploitDB retrieval) for search_security_kb"
+network_policies:
+  security-kb:
+    name: security-kb
+    endpoints:
+      - host: host.openshell.internal
+        port: 9005
+        protocol: rest
+        enforcement: enforce
+        rules:
+          - allow: { method: POST, path: "/search" }
+          - allow: { method: GET, path: "/health" }
+    binaries:
+      - { path: /usr/local/bin/security-triage-agent }
+      - { path: /opt/venv/bin/python3* }
+      - { path: /usr/local/bin/python3* }

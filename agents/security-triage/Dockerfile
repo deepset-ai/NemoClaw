@@ -44,7 +44,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # pi and langchain-deepagents-code) -- candidate qualification verifies this.
 RUN groupadd --gid 999 sandbox || true \
     && useradd --uid 999 --gid 999 --create-home --home-dir /sandbox --shell /bin/bash sandbox || true \
-    && mkdir -p /sandbox/.security-triage/state /sandbox/.security-triage/logs
+    && mkdir -p /sandbox/.security-triage/state /sandbox/.security-triage/logs /sandbox/.security-triage/reports /sandbox/work
 
 # Python venv at /opt/venv, matching the managed_inference binary allowlist
 # (/opt/venv/bin/python3* + the kernel-resolved /usr/local/bin/python3* symlink
@@ -98,9 +98,16 @@ RUN python3 -m venv /opt/security-agent-core/skills/code-triage/venv \
 RUN /opt/security-agent-core/skills/code-triage/venv/bin/python3 -c "from tree_sitter_language_pack import configure, get_parser; from tree_sitter_language_pack.options import PackConfig; configure(PackConfig(cache_dir='/opt/security-agent-core/skills/code-triage/venv/tree-sitter-cache')); [get_parser(l) for l in ['python', 'javascript', 'typescript', 'tsx', 'go', 'java', 'c', 'cpp']]" \
     && chown -R sandbox:sandbox /opt/security-agent-core/skills/code-triage/venv/tree-sitter-cache
 
+# `run_bash` tells the model bandit is on PATH; the skill venv owns the install, so expose it.
+RUN ln -sf /opt/security-agent-core/skills/code-triage/venv/bin/bandit /usr/local/bin/bandit
+
+# The packaged agent YAML (security_agent.repo_scan reads SECURITY_SCAN_CONFIG; start.sh exports
+# the same default so on-demand `security-triage-agent run` processes agree with the entrypoint).
+ENV SECURITY_SCAN_CONFIG=/opt/security-agent-core/seeds/repo-scan.yaml
+
 # Install the Security Triage agent runtime CLI. pyproject pulls haystack-ai==3.0.0
-# + anthropic-haystack~=5.13 (security-agent-core, installed above, is what
-# actually provides make_skill_script_tool). The pip entry point lands at
+# (security-agent-core, installed above, provides the agent: repo_scan, the tools,
+# make_skill_script_tool). The pip entry point lands at
 # /opt/venv/bin/security-triage-agent; on PATH we install a thin wrapper
 # (security-triage-agent-wrapper.sh) that sources the managed env file
 # nemoclaw-start persists, so `openshell sandbox exec -- security-triage-agent
@@ -122,7 +129,7 @@ RUN /usr/local/bin/security-triage-agent --version
 ARG NEMOCLAW_TOOL_DISCLOSURE=progressive
 ENV NEMOCLAW_TOOL_DISCLOSURE=${NEMOCLAW_TOOL_DISCLOSURE}
 
-# The OpenShell L7 proxy is TLS-terminating (MITM); the anthropic SDK (httpx-based)
+# The OpenShell L7 proxy is TLS-terminating (MITM); the openai SDK (httpx-based)
 # resolves CA trust via certifi.where(). Symlink certifi's bundle at SSL_CERT_FILE
 # so the venv trusts the proxy CA. Mirrors agents/deep-research/Dockerfile.
 ARG SSL_CERT_FILE=/etc/openshell-tls/ca-bundle.pem

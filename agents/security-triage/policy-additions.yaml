@@ -10,10 +10,16 @@
 # see the Dockerfile). Net effect: this agent's egress surface is exactly one
 # host, smaller than every sibling agent's.
 #
+# The optional second destination -- the host-side security knowledge base on
+# host.openshell.internal:9005 -- is NOT here. Custom sandbox-to-host access is an
+# operator decision, applied after onboarding with
+# `nemoclaw <sandbox> policy add --from-file agents/security-triage/presets/security-kb.yaml`.
+#
 # `include_workdir: true` is how the target repo becomes available inside the
 # sandbox for the skill to triage -- no clone/mount step needed, matching
 # langchain-deepagents-code's mechanism (its own policy-additions.yaml sets the
-# same flag for the same reason).
+# same flag for the same reason). A repo can also be uploaded with
+# `nemoclaw <sandbox> upload <dir> /sandbox/work/<name>`.
 
 version: 1
 
@@ -51,10 +57,10 @@ network_policies:
         protocol: rest
         enforcement: enforce
         rules:
-          # AnthropicChatGenerator calls the Messages API -- POST /v1/messages.
-          # GET /v1/models kept for parity with the OpenAI-compatible manifests'
-          # model-listing surface, in case a managed-inference model picker uses it.
-          - allow: { method: POST, path: "/v1/messages" }
+          # OpenAIChatGenerator calls Chat Completions -- POST /v1/chat/completions.
+          # GET /v1/models kept for the model-listing surface a managed-inference
+          # picker or a smoke test uses.
+          - allow: { method: POST, path: "/v1/chat/completions" }
           - allow: { method: GET, path: "/v1/models" }
           - allow: { method: GET, path: "/v1/models/**" }
     binaries:
