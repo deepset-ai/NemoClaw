@@ -16,7 +16,7 @@
 
 name: security-triage
 display_name: "Security Triage Agent"
-description: "Whole-repo vulnerability triage agent built on deepset Haystack and security-agent-core's code-triage skill"
+description: "Whole-repo security scan agent built on deepset Haystack and security-agent-core (run_bash/run_python tools, code-triage skill, host-side security KB)"
 version_constraint: ">=3.0.0"
 language: python
 license: Apache-2.0
@@ -33,7 +33,7 @@ version_scheme: semver
 runtime:
   kind: terminal
   interactive_command: "bash"
-  headless_command: "security-triage-agent run"
+  headless_command: "security-triage-agent run --repo /sandbox/work"
   smoke_commands:
     - "security-triage-agent --version"
 
@@ -45,11 +45,13 @@ config:
   format: yaml
 
 # ── State directories ──────────────────────────────────────────
-# v1 is stdout-only: reports are printed by `run`, not persisted. Only runtime
-# state/logs live under the config dir (HOME=/sandbox).
+# `run` writes one JSON record per scan (parsed findings, raw answer, full tool trajectory,
+# timing) under reports/ so every claim can be checked against the code; an operator-approved
+# agent.yaml in the config dir overrides the packaged seed.
 state_dirs:
   - state
   - logs
+  - reports
 
 user_managed_files:
   - .security-triage/.env
@@ -57,18 +59,14 @@ user_managed_files:
 device_pairing: false
 
 # ── Inference ───────────────────────────────────────────────────
-# Built on Haystack's AnthropicChatGenerator, which calls the Anthropic Messages
-# API (/v1/messages) via the `anthropic` SDK. The SDK reads ANTHROPIC_BASE_URL /
-# ANTHROPIC_API_KEY directly when no base_url= kwarg is passed (verified against
-# the installed anthropic-haystack + anthropic packages), so a NemoClaw managed
-# Anthropic-compatible endpoint routes through with no code changes. NemoClaw's
-# own inference-routing code (gateway-route-compatibility.ts) already has an
-# "anthropic-messages" inference-api kind and a "compatible-anthropic-endpoint"
-# provider kind -- provider_type here is descriptive only, since this agent
-# bypasses the ManagedStartupAgent-driven gateway wiring (manifest-only v1).
+# Built on Haystack's OpenAIChatGenerator, which calls the OpenAI-compatible Chat Completions
+# API (/v1/chat/completions) via the `openai` SDK. The SDK reads OPENAI_BASE_URL / OPENAI_API_KEY
+# when the agent YAML leaves api_base_url unset (start.sh exports both from NemoClaw's managed
+# route), so a local vLLM/NIM or any OpenAI-compatible provider selected at onboarding routes
+# through with no code changes. The served model name arrives as NEMOCLAW_MODEL.
 inference:
-  provider_type: anthropic_messages
-  default_model: claude-sonnet-5
+  provider_type: openai_compatible
+  default_model: nemotron-3.5-lightning
   base_url_config_key: "model.base_url"
   model_config_key: "model.default"
   proxy_support: implicit

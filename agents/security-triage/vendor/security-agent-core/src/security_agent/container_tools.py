@@ -1,20 +1,24 @@
-"""The SEC-bench agent's tools: serializable Haystack components that act on a Docker container.
+"""The agent's code-execution tools: serializable Haystack components that act on a container.
 
-This module is CODE only — the three tools (`run_shell`, `read_file`, `edit_file`) are ordinary
-serializable components that hold NO live Docker handle, so the agent config round-trips through
-YAML and the meta-agent can mutate it like any other config. The live container is supplied
-out-of-band per task via a `ContextVar` that `SecBench.run` sets (`use_container`) and the tools
-read (`active_container`). This mirrors the meta-agent's own `optimize/meta/session.py` pattern.
+This module is CODE only — the tools (`run_shell`/`run_bash`, `run_python`, `read_file`,
+`write_file`, `edit_file`, `debug_crash`, `find_symbol`) are ordinary serializable components that
+hold NO live Docker handle, so the agent config round-trips through YAML and the meta-agent can
+mutate it like any other config. The live container is supplied out-of-band per task via a
+`ContextVar` that the benchmark runner sets (`use_container`) and the tools read
+(`active_container`). SEC-bench binds the CVE's own image; every other benchmark binds the generic
+offline sandbox from `security_agent.sandbox`. This mirrors the meta-agent's own
+`optimize/meta/session.py` pattern.
 
 The agent's *definition* — system prompt, tool descriptions, step budget, generation kwargs — is
-NOT here. It lives in the committed seed YAML (`seeds/secbench.yaml`), the single source of truth;
-the tool catalog reconstructs these tools from that seed (`optimize/tool_catalog.get_catalog`).
+NOT here. It lives in the committed seed YAML (`seeds/<benchmark>.yaml`), the single source of
+truth; the tool catalog reconstructs these tools from that seed (`optimize/tool_catalog.get_catalog`).
 """
 
 from __future__ import annotations
 
 import re
 import shlex
+import uuid
 from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import Iterator, Optional, Protocol, Union
@@ -36,6 +40,10 @@ DEFAULT_SHELL_OUTPUT_CHARS = 20_000
 # a hung target can't eat the whole step budget. The seed YAML stores the tool's actual timeout.
 DEFAULT_DEBUG_TIMEOUT = 120
 
+# A Python snippet is a short computation, not a build; the seed stores the tool's actual timeout.
+DEFAULT_PYTHON_TIMEOUT = 60
+DEFAULT_PYTHON_OUTPUT_CHARS = 12_000
+
 # The navigator's first call may install cscope and index the whole tree (slow under emulation);
 # later calls are cheap (cached index). Generous so the one-time build can't time out mid-run.
 DEFAULT_NAV_TIMEOUT = 300
@@ -48,7 +56,12 @@ class _Container(Protocol):
     """The subset of docker_eval.ContainerHandle the tools rely on (duck-typed so this
     module never has to import docker/docker_eval)."""
 
-    def exec(self, command: str, timeout: Optional[int] = None) -> tuple[int, str]: ...
+    def exec(
+        self,
+        command: str,
+        timeout: Optional[int] = None,
+        max_output_chars: int | None = None,
+    ) -> tuple[int, str]: ...
     def read_file(self, path: str) -> str: ...
     def write_file(self, path: str, content: str) -> str: ...
 
@@ -103,7 +116,11 @@ class DockerShell:
 
     @component.output_types(output=str)
     def run(self, command: str) -> dict:
-        exit_code, out = active_container().exec(command, timeout=self.timeout)
+        exit_code, out = active_container().exec(
+            command,
+            timeout=self.timeout,
+            max_output_chars=self.max_output_chars,
+        )
         out = _truncate_middle(out, self.max_output_chars)
         return {"output": f"(exit {exit_code})\n{out}".strip()}
 
@@ -211,6 +228,87 @@ class DockerEditFile:
 
     @classmethod
     def from_dict(cls, data: dict) -> "DockerEditFile":
+        return default_from_dict(cls, data)
+
+
+@component
+class DockerWriteFile:
+    """Create or overwrite a file in the bound container. Backs the `write_file` tool.
+
+    The complement of `read_file`: a whole-file write for scratch material — a test harness, a
+    header stub, an input file — where `edit_file`'s exact-snippet replacement would be the wrong
+    shape. Parent directories are created. Failures come back as `(error: ...)` strings, like the
+    other tools, never as exceptions."""
+
+    @component.output_types(result=str)
+    def run(self, path: str, content: str) -> dict:
+        status = active_container().write_file(path, content)
+        if status != "ok":
+            return {"result": status}
+        return {"result": f"ok: wrote {len(content.encode('utf-8'))} bytes to {path}"}
+
+    def to_dict(self) -> dict:
+        return default_to_dict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "DockerWriteFile":
+        return default_from_dict(cls, data)
+
+
+# Models routinely wrap code in a Markdown fence, sometimes with a language tag; the fence is not
+# Python and would be a SyntaxError on line 1. Strip one enclosing fence, nothing more.
+_FENCE_RE = re.compile(r"^\s*```[\w+.-]*[ \t]*\r?\n(.*?)\r?\n?```\s*$", re.DOTALL)
+
+
+def strip_code_fence(code: str) -> str:
+    """Remove one enclosing Markdown code fence (```python ... ```) if present."""
+    if not isinstance(code, str):
+        return ""
+    match = _FENCE_RE.match(code)
+    return match.group(1) if match else code
+
+
+@component
+class RunPython:
+    """Run a complete Python script in the bound container. Backs the `run_python` tool.
+
+    Each call is a fresh interpreter: the code is written to a temp file and run with
+    `python3 -u`, so nothing persists between calls except files the script itself writes. The
+    result has the same shape as `run_shell` — `(exit N)` then the merged stdout/stderr, head and
+    tail kept when long — so the model reads both tools the same way. A timeout surfaces as
+    `(exit 124)` (from `timeout`), not as an exception."""
+
+    def __init__(
+        self,
+        timeout: int = DEFAULT_PYTHON_TIMEOUT,
+        max_output_chars: int = DEFAULT_PYTHON_OUTPUT_CHARS,
+    ) -> None:
+        self.timeout = timeout
+        self.max_output_chars = max_output_chars
+
+    @component.output_types(output=str)
+    def run(self, code: str) -> dict:
+        source = strip_code_fence(code)
+        if not source.strip():
+            return {"output": "(error: empty code. Pass a complete Python script as a string.)"}
+        container = active_container()
+        path = f"/tmp/secagent_run_{uuid.uuid4().hex}.py"
+        status = container.write_file(path, source if source.endswith("\n") else source + "\n")
+        if status != "ok":
+            return {"output": status}
+        exit_code, out = container.exec(
+            f"python3 -u {shlex.quote(path)}",
+            timeout=self.timeout,
+            max_output_chars=self.max_output_chars,
+        )
+        out = _truncate_middle(out, self.max_output_chars)
+        return {"output": f"(exit {exit_code})\n{out}".strip()}
+
+    def to_dict(self) -> dict:
+        return default_to_dict(self, timeout=self.timeout, max_output_chars=self.max_output_chars)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "RunPython":
         return default_from_dict(cls, data)
 
 
@@ -337,7 +435,11 @@ class DockerDebugger:
         gdb_cmd = " ".join(shlex.quote(tok) for tok in tokens)
         # Probe for gdb first so a missing binary yields our sentinel, not a raw "command not found".
         shell = f"if command -v gdb >/dev/null 2>&1; then {gdb_cmd}; else echo {_NO_GDB_SENTINEL}; fi"
-        _, out = active_container().exec(shell, timeout=self.timeout)
+        _, out = active_container().exec(
+            shell,
+            timeout=self.timeout,
+            max_output_chars=self.max_output_chars,
+        )
         if _NO_GDB_SENTINEL in out:
             return {"report": (
                 "(error: gdb is not installed in this container. Read the sanitizer backtrace from "
@@ -452,7 +554,11 @@ class CodeNavigator:
                 f"(error: unknown mode '{mode}'. Use 'definition', 'callers', or 'references'.)"
             )}
         script = _NAV_SCRIPT.format(flag=flag, sym=shlex.quote(symbol))
-        _, out = active_container().exec(script, timeout=self.timeout)
+        _, out = active_container().exec(
+            script,
+            timeout=self.timeout,
+            max_output_chars=max(20_000, self.max_results * 2_000),
+        )
         return {"result": _format_nav(out, mode, symbol, self.max_results)}
 
     def to_dict(self) -> dict:
