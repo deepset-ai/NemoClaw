@@ -264,7 +264,33 @@ def force_final_answer(agent: Any, out: dict, prompt: str) -> dict:
     if not replies:
         return out
     reply = replies[0]
+    if not (reply.text or "").strip():
+        # A reasoning model may spend the whole reply thinking and leave the text empty; the verdict is
+        # often complete inside the reasoning. Salvage it there before giving up on the task.
+        salvaged = _json_from_reasoning(reply)
+        if salvaged is None:
+            try:
+                retry = agent.chat_generator.run(
+                    messages=[*messages, nudge, ChatMessage.from_user("Reply with the JSON object only, no reasoning.")], tools=None
+                ).get("replies") or []
+            except Exception:  # noqa: BLE001
+                retry = []
+            if retry and (retry[0].text or "").strip():
+                reply = retry[0]
+            elif retry:
+                salvaged = _json_from_reasoning(retry[0])
+        if salvaged is not None:
+            reply = ChatMessage.from_assistant(salvaged)
     return {**out, "messages": [*messages, nudge, reply], "last_message": reply, "forced_final_answer": True}
+
+
+def _json_from_reasoning(reply: Any) -> Optional[str]:
+    """The last JSON object inside a reply's reasoning text, when the visible text is empty."""
+    from security_agent.verdict import extract_json_object
+
+    reasoning = getattr(reply, "reasoning", None)
+    text = getattr(reasoning, "reasoning_text", None) if reasoning is not None else None
+    return extract_json_object(text or "") if text else None
 
 
 # --------------------------------------------------------------------------- #
